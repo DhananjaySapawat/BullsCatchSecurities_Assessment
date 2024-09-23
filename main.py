@@ -1,17 +1,20 @@
-import pandas as pd
 import os
-import re 
-import psycopg2
-from sqlalchemy import create_engine, text
+import re
 from datetime import datetime, time, timedelta
+
+import pandas as pd
 import matplotlib.pyplot as plt
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Database connection parameters
-db_user = 'postgres'
-db_password = '12345678'
-db_host = 'localhost'
-db_port = '5432'       
-db_name = 'test'
+db_user = os.getenv('db_user')
+db_password = os.getenv('db_password')
+db_host = os.getenv('db_host')
+db_port = os.getenv('db_port')     
+db_name = os.getenv('db_name')
 
 def CreateOptionChainDatabase(conn):
 
@@ -122,6 +125,7 @@ if __name__ == '__main__':
     CreateNiftyTickDatabase(conn)
 
     # task 1
+    print("-" * 25, "Taks 1", "-" * 25)
     tables = ["optiontickdata", "niftytickdata"]
     columns = {
         "optiontickdata": ["strike_price", "volume", "open_interest"],
@@ -153,6 +157,7 @@ if __name__ == '__main__':
 
 
     # task 2 
+    print("-" * 25, "Taks 2", "-" * 25)
     result = conn.execute(text('SELECT option_type, SUM(volume) FROM optiontickdata GROUP BY option_type;'))
     result = result.fetchall()
 
@@ -161,6 +166,7 @@ if __name__ == '__main__':
 
 
     # task 3
+    print("-" * 25, "Taks 3", "-" * 25)
     option_cleaning_query = '''
         DELETE FROM optiontickdata
         WHERE expiry_date IS NULL
@@ -180,6 +186,7 @@ if __name__ == '__main__':
     conn.execute(text(nifty_cleaning_query))
 
     #task 4
+    print("-" * 25, "Taks 4", "-" * 25)
     option_format_query = '''
         UPDATE optiontickdata
         SET 
@@ -197,6 +204,7 @@ if __name__ == '__main__':
     #conn.execute(text(nifty_format_query))
 
     # task 5
+    print("-" * 25, "Taks 5", "-" * 25)
     filter_query = '''
         SELECT * FROM optiontickdata
         WHERE strike_price > 15000 AND volume > 1000
@@ -205,11 +213,12 @@ if __name__ == '__main__':
     result = conn.execute(text(filter_query))
     result = result.fetchall()
 
-    df = pd.DataFrame(result, columns=['strike_price', 'volume', 'other_column1', 'other_column2', ...])
+    df = pd.DataFrame(result, columns=['expire_date', 'strike_price', 'option_type', 'date', 'time', 'tick_price', 'volume', 'open_interest'])
     print(df)
 
 
     # task 6
+    print("-" * 25, "Taks 6", "-" * 25)
     specific_option = "NIFTY 15000 CE"
     strike_price = 15000
     option_type = "Call"
@@ -243,6 +252,7 @@ if __name__ == '__main__':
     plt.close() 
 
     # task 7 
+    print("-" * 25, "Taks 7", "-" * 25)
     option_data_query = '''
         SELECT date, time, open_interest
         FROM optiontickdata AS O1
@@ -275,6 +285,7 @@ if __name__ == '__main__':
     plt.close() 
 
     # task 8 
+    print("-" * 25, "Taks 8", "-" * 25)
     start_date = '2023-07-04'
     end_date = '2023-07-11'
     start_date = '2024-01-02'
@@ -336,11 +347,14 @@ if __name__ == '__main__':
                 j += 1
 
     trade_df = pd.DataFrame(trade)
-
-    # task 9
     if not trade_df.empty:
         trade_df["cumulative_profit"] = trade_df['profit'].cumsum()
 
+    total_profit = trade_df.iloc[-1]["cumulative_profit"]
+    print(f"Total Profit: {total_profit}")
+    
+    # task 9
+    print("-" * 25, "Taks 9", "-" * 25)
     plt.figure(figsize=(12, 6))
     plt.plot(trade_df["sell_time"], trade_df["cumulative_profit"], label='Cumulative Profit')
 
