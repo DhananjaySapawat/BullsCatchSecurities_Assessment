@@ -16,6 +16,10 @@ db_host = os.getenv('db_host')
 db_port = os.getenv('db_port')     
 db_name = os.getenv('db_name')
 
+def is_valid_date(date_string):
+    pattern = r'^\d{4}-\d{2}-\d{2}$'
+    return bool(re.match(pattern, date_string))
+
 def CreateOptionChainDatabase(conn):
 
     option_folder = "NiftyRaw2024Options"
@@ -125,7 +129,7 @@ if __name__ == '__main__':
     CreateNiftyTickDatabase(conn)
 
     # task 1
-    print("-" * 25, "Taks 1", "-" * 25)
+    print("-" * 25, "Task 1", "-" * 25)
     tables = ["optiontickdata", "niftytickdata"]
     columns = {
         "optiontickdata": ["strike_price", "volume", "open_interest"],
@@ -157,7 +161,7 @@ if __name__ == '__main__':
 
 
     # task 2 
-    print("-" * 25, "Taks 2", "-" * 25)
+    print("-" * 25, "Task 2", "-" * 25)
     result = conn.execute(text('SELECT option_type, SUM(volume) FROM optiontickdata GROUP BY option_type;'))
     result = result.fetchall()
 
@@ -166,7 +170,7 @@ if __name__ == '__main__':
 
 
     # task 3
-    print("-" * 25, "Taks 3", "-" * 25)
+    print("-" * 25, "Task 3", "-" * 25)
     option_cleaning_query = '''
         DELETE FROM optiontickdata
         WHERE expiry_date IS NULL
@@ -186,25 +190,35 @@ if __name__ == '__main__':
     conn.execute(text(nifty_cleaning_query))
 
     #task 4
-    print("-" * 25, "Taks 4", "-" * 25)
-    option_format_query = '''
-        UPDATE optiontickdata
-        SET 
-            expiry_date = TO_DATE(expiry_date, 'DDMMYY'),
-            date = TO_DATE(date, 'YYYYMMDD');
+    print("-" * 25, "Task 4", "-" * 25)
+    task4_query = '''
+        SELECT expiry_date 
+        FROM optiontickdata 
+        LIMIT 1;
     '''
-    #conn.execute(text(option_format_query))
+    result = conn.execute(text(task4_query))
+    result = result.fetchone()
+    pattern = r'^\d{4}-\d{2}-\d{2}$'
 
-    nifty_format_query = '''
-        UPDATE niftytickdata
-        SET 
-            date = TO_DATE(date, 'YYYYMMDD');
+    if bool(re.match(pattern, result[0])) == False:
+        option_format_query = '''
+            UPDATE optiontickdata
+            SET 
+                expiry_date = TO_DATE(expiry_date, 'DDMMYY'),
+                date = TO_DATE(date, 'YYYYMMDD');
+        '''
+        conn.execute(text(option_format_query))
 
-    '''
-    #conn.execute(text(nifty_format_query))
+        nifty_format_query = '''
+            UPDATE niftytickdata
+            SET 
+                date = TO_DATE(date, 'YYYYMMDD');
+
+        '''
+        conn.execute(text(nifty_format_query))
 
     # task 5
-    print("-" * 25, "Taks 5", "-" * 25)
+    print("-" * 25, "Task 5", "-" * 25)
     filter_query = '''
         SELECT * FROM optiontickdata
         WHERE strike_price > 15000 AND volume > 1000
@@ -216,9 +230,8 @@ if __name__ == '__main__':
     df = pd.DataFrame(result, columns=['expire_date', 'strike_price', 'option_type', 'date', 'time', 'tick_price', 'volume', 'open_interest'])
     print(df)
 
-
     # task 6
-    print("-" * 25, "Taks 6", "-" * 25)
+    print("-" * 25, "Task 6", "-" * 25)
     specific_option = "NIFTY 15000 CE"
     strike_price = 15000
     option_type = "Call"
@@ -252,7 +265,7 @@ if __name__ == '__main__':
     plt.close() 
 
     # task 7 
-    print("-" * 25, "Taks 7", "-" * 25)
+    print("-" * 25, "Task 7", "-" * 25)
     option_data_query = '''
         SELECT date, time, open_interest
         FROM optiontickdata AS O1
@@ -285,11 +298,9 @@ if __name__ == '__main__':
     plt.close() 
 
     # task 8 
-    print("-" * 25, "Taks 8", "-" * 25)
+    print("-" * 25, "Task 8", "-" * 25)
     start_date = '2023-07-04'
     end_date = '2023-07-11'
-    start_date = '2024-01-02'
-    end_date = '2024-02-11'
 
     backtesting_query = """
         select date, time, option_type, tick_price from optiontickdata
@@ -354,7 +365,7 @@ if __name__ == '__main__':
     print(f"Total Profit: {total_profit}")
     
     # task 9
-    print("-" * 25, "Taks 9", "-" * 25)
+    print("-" * 25, "Task 9", "-" * 25)
     plt.figure(figsize=(12, 6))
     plt.plot(trade_df["sell_time"], trade_df["cumulative_profit"], label='Cumulative Profit')
 

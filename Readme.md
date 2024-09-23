@@ -1,4 +1,4 @@
-# BullsCatchSecurities Technical Assessment README
+# BullsCatchSecurities Technical Assessment 
 
 ## Overview
 This project generates graphs from data stored in a PostgreSQL database. Please ensure you have the necessary dependencies installed.
