@@ -3,7 +3,7 @@ import os
 import re 
 import psycopg2
 from sqlalchemy import create_engine, text
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import matplotlib.pyplot as plt
 
 # Database connection parameters
@@ -11,18 +11,7 @@ db_user = 'postgres'
 db_password = '12345678'
 db_host = 'localhost'
 db_port = '5432'       
-db_name = 'Nifty'
-
-def connect_database():
-    # Establish connection to the PostgreSQL database
-    connection = psycopg2.connect(
-        dbname=db_name,
-        user=db_user,
-        password=db_password,
-        host=db_host,
-        port=db_port
-    )
-    return connection
+db_name = 'test'
 
 def CreateOptionChainDatabase(conn):
 
@@ -150,16 +139,26 @@ if __name__ == '__main__':
             FROM 
                 {table};
         '''
+        queries = {
+            "Max Values": max_query,
+            "Min Values": min_query,
+            "Mean Values": mean_query,
+            "Median Values": median_query
+        }
 
-        for query in [max_query, min_query, mean_query, median_query]:
+        for query_type, query in queries.items():
             result = conn.execute(text(query))
-            print(result.fetchone())
+            values = result.fetchone()
+            print(f"{query_type}: {columns[table][0]} = {values[0]}, {columns[table][1]} = {values[1]}, {columns[table][2]} = {values[2]}")
 
 
     # task 2 
     result = conn.execute(text('SELECT option_type, SUM(volume) FROM optiontickdata GROUP BY option_type;'))
     result = result.fetchall()
-    print(result)
+
+    for option_type, total_volume in result:
+        print(f"Option Type: {option_type}, Total Volume: {total_volume}")
+
 
     # task 3
     option_cleaning_query = '''
@@ -170,7 +169,7 @@ if __name__ == '__main__':
             OR volume IS NULL
             OR open_interest IS NULL;
     '''
-    result = conn.execute(text(option_cleaning_query))
+    conn.execute(text(option_cleaning_query))
 
     nifty_cleaning_query = '''
         DELETE FROM niftytickdata
@@ -178,7 +177,7 @@ if __name__ == '__main__':
             OR close IS NULL
             OR volume IS NULL;    
     '''
-    result = conn.execute(text(nifty_cleaning_query))
+    conn.execute(text(nifty_cleaning_query))
 
     #task 4
     option_format_query = '''
@@ -187,7 +186,7 @@ if __name__ == '__main__':
             expiry_date = TO_DATE(expiry_date, 'DDMMYY'),
             date = TO_DATE(date, 'YYYYMMDD');
     '''
-    #result = conn.execute(text(option_format_query))
+    #conn.execute(text(option_format_query))
 
     nifty_format_query = '''
         UPDATE niftytickdata
@@ -195,7 +194,7 @@ if __name__ == '__main__':
             date = TO_DATE(date, 'YYYYMMDD');
 
     '''
-    #result = conn.execute(text(nifty_format_query))
+    #conn.execute(text(nifty_format_query))
 
     # task 5
     filter_query = '''
@@ -205,15 +204,21 @@ if __name__ == '__main__':
     '''
     result = conn.execute(text(filter_query))
     result = result.fetchall()
-    print(result)
 
-    # task 6 
+    df = pd.DataFrame(result, columns=['strike_price', 'volume', 'other_column1', 'other_column2', ...])
+    print(df)
+
+
+    # task 6
     specific_option = "NIFTY 15000 CE"
     strike_price = 15000
     option_type = "Call"
     specific_data_query = '''
-        SELECT date, time, tick_price FROM OPTIOntickdata
-        WHERE strike_price = :strike_price AND option_type = :option_type; 
+        SELECT date, time, AVG(tick_price) AS avg_tick_price
+        FROM OPTIOntickdata
+        WHERE strike_price = :strike_price AND option_type = :option_type
+        GROUP BY date, time
+        ORDER BY date, time;
     '''
     result = conn.execute(text(specific_data_query), {'strike_price': strike_price, 'option_type': option_type})
     result = result.fetchall()
@@ -222,22 +227,130 @@ if __name__ == '__main__':
     y_axis = []
 
     for my_date, my_time, my_value in result:
-        date_object = datetime.strptime(my_date, "%Y-%m-%d").date()
-        timestamp  = int(datetime.combine(date_object, my_time).timestamp())
+        timestamp = datetime.strptime(f"{my_date} {my_time}", "%Y-%m-%d %H:%M:%S")
         x_axis.append(timestamp)
         y_axis.append(my_value)
 
-    print(x_axis)
-    print(y_axis)
+    plt.figure(figsize=(12, 6))
+    plt.plot(x_axis, y_axis)
 
     plt.title(f'Time-Series Plot of LTP for {specific_option}')
-    plt.xlabel('Time')
+    plt.xlabel('Timestamp')
     plt.ylabel('Last Traded Price (LTP)')
-    plt.xticks(rotation=45)
-    plt.legend()
-    plt.grid()
-    plt.tight_layout()
-    plt.show()
+    
+    plt.grid(True)
+    plt.savefig("Graphs/task6.png", dpi = 200)
+    plt.close() 
+
+    # task 7 
+    option_data_query = '''
+        SELECT date, time, open_interest
+        FROM optiontickdata AS O1
+        WHERE O1.expiry_date = (SELECT MAX(expiry_date) FROM optiontickdata) AND option_type = :option_type
+        ORDER BY date, time;
+    '''
+
+    x_axis = {'Put' : [], 'Call' : []}
+    y_axis = {'Put' : [], 'Call' : []}
+
+    for option_type in ['Put', 'Call']:
+        result = conn.execute(text(option_data_query), {'option_type': option_type})
+        result = result.fetchall()
+
+        for my_date, my_time, open_interest in result:
+            timestamp = datetime.strptime(f"{my_date} {my_time}", "%Y-%m-%d %H:%M:%S")
+            x_axis[option_type].append(timestamp)
+            y_axis[option_type].append(open_interest)
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(x_axis['Put'], y_axis['Put'], label='Puts')
+    plt.plot(x_axis['Call'], y_axis['Call'], label='Calls')
+
+    plt.title('Open Interest for Calls and Puts Over Time for the Last Expiry')
+    plt.xlabel('Date')
+    plt.ylabel('Open Interest')
+    plt.legend(['Put', 'Call']) 
+
+    plt.savefig("Graphs/task7.png", dpi = 200)
+    plt.close() 
+
+    # task 8 
+    start_date = '2023-07-04'
+    end_date = '2023-07-11'
+    start_date = '2024-01-02'
+    end_date = '2024-02-11'
+
+    backtesting_query = """
+        select date, time, option_type, tick_price from optiontickdata
+        WHERE date >= :start_date AND date <= :end_date
+        ORDER BY date, time; 
+    """
+
+    result = conn.execute(text(backtesting_query), {'start_date': start_date, 'end_date': end_date})
+    result = result.fetchall()
+
+    df = pd.DataFrame(result, columns=['date', 'time', 'option_type', 'price'])
+    df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + df['time'].astype(str))
+    df.drop(columns=['time'], inplace=True)
+
+    trade = []
+
+    for i in range(len(df)):
+        row = df.iloc[i]
+        current_time = row['datetime']
+        current_price = float(row['price'])
+
+        if row['option_type'] == 'Call':
+            end_time = current_time + timedelta(minutes=10)
+            j = i + 1
+
+            while j < len(df) and df.iloc[j]['datetime'] <= end_time:
+                if df.iloc[j]['price'] >= 1.05 * current_price:
+                    buy_time = df.iloc[j]['datetime']
+                    buy_price = float(df.iloc[j]['price'])
+
+                    # Find sell price
+                    k = j + 1
+                    sell_price = None
+                    while k < len(df) and df.iloc[k]['datetime'].date() == buy_time.date():
+                        if float(df.iloc[k]['price']) <= 0.97 * buy_price:
+                            sell_price = float(df.iloc[k]['price'])
+                            sell_time = df.iloc[k]['datetime']
+                            break
+                        k += 1
+
+                    if sell_price is None:
+                        sell_price = float(df.iloc[k - 1]['price'])
+                        sell_time = df.iloc[k - 1]['datetime']
+
+                    trade.append({
+                        'buy_time': buy_time,
+                        'buy_price': buy_price,
+                        'sell_time': df.iloc[k]['datetime'],
+                        'sell_price': sell_price,
+                        'profit': sell_price - buy_price
+                    })
+
+                    j = k 
+
+                j += 1
+
+    trade_df = pd.DataFrame(trade)
+
+    # task 9
+    if not trade_df.empty:
+        trade_df["cumulative_profit"] = trade_df['profit'].cumsum()
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(trade_df["sell_time"], trade_df["cumulative_profit"], label='Cumulative Profit')
+
+    plt.title('Cumulative Profit vs Sell Time')
+    plt.xlabel('Sell Time')
+    plt.ylabel('Cumulative Profit')
+
+    plt.grid(True)
+    plt.savefig("Graphs/task9.png", dpi = 200)
+    plt.close() 
 
     # Commit changes and close the connection
     conn.commit()

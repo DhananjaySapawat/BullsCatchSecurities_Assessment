@@ -3,7 +3,7 @@ import os
 import re 
 import psycopg2
 from sqlalchemy import create_engine, text
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import matplotlib.pyplot as plt
 
 # Database connection parameters
@@ -11,162 +11,91 @@ db_user = 'postgres'
 db_password = '12345678'
 db_host = 'localhost'
 db_port = '5432'       
-db_name = 'Nifty'
+db_name = 'test'
 
-def connect_database():
-    # Establish connection to the PostgreSQL database
-    connection = psycopg2.connect(
-        dbname=db_name,
-        user=db_user,
-        password=db_password,
-        host=db_host,
-        port=db_port
-    )
-    return connection
-
-def CreateOptionChainDatabase(conn):
-
-    option_folder = "NiftyRaw2024Options"
-    option_path = f"NIFTYRAW/{option_folder}" 
-
-    # Compile the regex pattern once
-    pattern = re.compile(r"([A-Z]+)(\d{6})(\d+)([A-Z]{2})\.csv")
-
-    # Check if the table exists
-    result = conn.execute(text("""
-        SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_name = 'optiontickdata'
-        );
-    """))
-  
-    table_exists = result.scalar()  # Fetch the result as a boolean
-        
-    if table_exists:
-        print("Table 'optiontickdata' already exists. Exiting...")
-        return  
-
-    # Create the table if it doesn't exist
-    conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS optiontickdata (
-            expiry_date varchar(255),
-            strike_price INT,
-            option_type varchar(255),
-            date varchar(255),
-            time TIME,
-            tick_price DECIMAL(10, 2),
-            volume INT,
-            open_interest INT
-        );
-    """))
-
-    # Proceed if the table doesn't exist
-    for file in os.listdir(option_path):
-        file_path = f"NIFTYRAW/{option_folder}/{file}"
-        result = re.findall(pattern, file_path)
-        _, expiry_date, strike_price, option_type = result[0] 
-        option_label = "Call" if option_type == "CE" else "Put"
-
-        df =  pd.read_csv(file_path)
-        df.insert(0, 'expiry_date', int(expiry_date))
-        df.insert(1, 'strike_price', int(strike_price))
-        df.insert(2, 'option_type', option_label)
-
-        df.to_sql('optiontickdata', conn, if_exists='append', index=False, chunksize=5000)
-
-def CreateNiftyTickDatabase(conn):
-
-    fut_folder = "Nifty_Fut"
-    fut_path = f"NIFTYRAW/{fut_folder}" 
-
-    # Check if the table exists
-    result = conn.execute(text("""
-        SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_name = 'niftytickdata'
-        );
-    """))
-  
-    table_exists = result.scalar()  # Fetch the result as a boolean
-        
-    if table_exists:
-        print("Table 'niftytickdata' already exists. Exiting...")
-        return  
-
-    # Create the table if it doesn't exist
-    conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS niftytickdata (
-            date varchar(255),
-            open DECIMAL(10, 2),
-            close DECIMAL(10, 2),
-            volume INT
-        );
-    """))
-
-    # Proceed if the table doesn't exist
-    for file in os.listdir(fut_path):
-        file_path = f"NIFTYRAW/{fut_folder}/{file}"
-        
-        df = pd.read_csv(file_path, header = None)
-
-        # Rename columns for clarity
-        df.columns = ['date', 'time', 'tick_price', 'volume', 'open_interest']
-
-        # Group by date and calculate Open, Close, and Volume
-        nifty_df = df.groupby('date').agg(
-            open=('tick_price', 'first'),
-            close=('tick_price', 'last'),
-            volume=('volume', 'sum')
-        ).reset_index()
-
-        nifty_df.to_sql('niftytickdata', conn, if_exists='append', index=False, chunksize=5000)
-        
 if __name__ == '__main__':
-
 
     # Create the engine
     connection_string = f'postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
     engine = create_engine(connection_string)
     conn = engine.connect() 
 
-    # task 6 
-    specific_option = "NIFTY 15000 CE"
-    strike_price = 15000
-    option_type = "Call"
-    specific_data_query = '''
-        SELECT date, AVG(tick_price) AS avg_tick_price
-        FROM OPTIOntickdata
-        WHERE strike_price = :strike_price AND option_type = :option_type
-        GROUP BY date
-        ORDER BY date;
-    '''
-    result = conn.execute(text(specific_data_query), {'strike_price': strike_price, 'option_type': option_type})
+    # task 8 
+    start_date = '2023-07-04'
+    end_date = '2023-07-11'
+    start_date = '2024-01-02'
+    end_date = '2024-02-11'
+
+    backtesting_query = """
+        select date, time, option_type, tick_price from optiontickdata
+        WHERE date >= :start_date AND date <= :end_date
+        ORDER BY date, time; 
+    """
+
+    result = conn.execute(text(backtesting_query), {'start_date': start_date, 'end_date': end_date})
     result = result.fetchall()
 
-    x_axis = []
-    y_axis = []
+    df = pd.DataFrame(result, columns=['date', 'time', 'option_type', 'price'])
+    df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + df['time'].astype(str))
+    df.drop(columns=['time'], inplace=True)
 
-    for my_date, my_value in result:
-        timestamp  = datetime.strptime(my_date, "%Y-%m-%d").date()
-        x_axis.append(timestamp)
-        y_axis.append(my_value)
+    trade = []
 
-    print(x_axis)
-    print(y_axis)
-    print(min(x_axis), max(x_axis))
-    print(min(y_axis), max(y_axis))
+    for i in range(len(df)):
+        row = df.iloc[i]
+        current_time = row['datetime']
+        current_price = float(row['price'])
 
-    plt.plot(x_axis, y_axis, marker='o')
+        if row['option_type'] == 'Call':
+            end_time = current_time + timedelta(minutes=10)
+            j = i + 1
 
-    plt.xlabel('X values (Timestamp)')
-    plt.ylabel('Y values')
+            while j < len(df) and df.iloc[j]['datetime'] <= end_time:
+                if df.iloc[j]['price'] >= 1.05 * current_price:
+                    buy_time = df.iloc[j]['datetime']
+                    buy_price = float(df.iloc[j]['price'])
 
-    plt.title(f'Time-Series Plot of LTP for {specific_option}')
-    plt.xlabel('Time')
-    plt.ylabel('Last Traded Price (LTP)')
-    
-    plt.grid()
-    plt.show()
+                    # Find sell price
+                    k = j + 1
+                    sell_price = None
+                    while k < len(df) and df.iloc[k]['datetime'].date() == buy_time.date():
+                        if float(df.iloc[k]['price']) <= 0.97 * buy_price:
+                            sell_price = float(df.iloc[k]['price'])
+                            sell_time = df.iloc[k]['datetime']
+                            break
+                        k += 1
+
+                    if sell_price is None:
+                        sell_price = float(df.iloc[k - 1]['price'])
+                        sell_time = df.iloc[k - 1]['datetime']
+
+                    trade.append({
+                        'buy_time': buy_time,
+                        'buy_price': buy_price,
+                        'sell_time': df.iloc[k]['datetime'],
+                        'sell_price': sell_price,
+                        'profit': sell_price - buy_price
+                    })
+
+                    j = k 
+
+                j += 1
+
+    trade_df = pd.DataFrame(trade)
+
+    # task 9
+    if not trade_df.empty:
+        trade_df["cumulative_profit"] = trade_df['profit'].cumsum()
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(trade_df["sell_time"], trade_df["cumulative_profit"], label='Cumulative Profit')
+
+    plt.title('Cumulative Profit vs Sell Time')
+    plt.xlabel('Sell Time')
+    plt.ylabel('Cumulative Profit')
+
+    plt.grid(True)
+    plt.savefig("Graphs/task9.png", dpi=200)
 
     # Commit changes and close the connection
     conn.commit()
