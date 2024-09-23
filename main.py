@@ -1,7 +1,7 @@
 import os
 import re
 from datetime import datetime, time, timedelta
-
+import psycopg2
 import pandas as pd
 import matplotlib.pyplot as plt
 from sqlalchemy import create_engine, text
